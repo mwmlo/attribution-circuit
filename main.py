@@ -36,6 +36,7 @@ cfg = HookedTransformerConfig(
 )
 
 model = HookedTransformer(cfg).eval()
+print(model)
 tokenizer = SimpleTokenizer("()")
 
 state_dict = t.load("brackets_model_state_dict.pt", map_location=device)
@@ -69,31 +70,31 @@ model = add_perma_hooks_to_mask_pad_tokens(model, tokenizer.PAD_TOKEN)
 
 print("Loaded model")
 
-N_SAMPLES = 5000
-with open("brackets_data.json") as f:
-    data_tuples = json.load(f)
-    print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
-    data_tuples = data_tuples[:N_SAMPLES]
+# N_SAMPLES = 5000
+# with open("brackets_data.json") as f:
+#     data_tuples = json.load(f)
+#     print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
+#     data_tuples = data_tuples[:N_SAMPLES]
 
-data = BracketsDataset(data_tuples).to(device)
-data_mini = BracketsDataset(data_tuples[:100]).to(device)
+# data = BracketsDataset(data_tuples).to(device)
+# data_mini = BracketsDataset(data_tuples[:100]).to(device)
 
-def run_model_on_data(
-    model: HookedTransformer, data: BracketsDataset, batch_size: int = 200
-):
-    """Return probability that each example is balanced"""
-    all_logits = []
-    for i in range(0, len(data.strs), batch_size):
-        toks = data.toks[i : i + batch_size]
-        logits = model(toks)[:, 0]
-        all_logits.append(logits)
-    all_logits = t.cat(all_logits)
-    assert all_logits.shape == (len(data), 2)
-    return all_logits
+# def run_model_on_data(
+#     model: HookedTransformer, data: BracketsDataset, batch_size: int = 200
+# ):
+#     """Return probability that each example is balanced"""
+#     all_logits = []
+#     for i in range(0, len(data.strs), batch_size):
+#         toks = data.toks[i : i + batch_size]
+#         logits = model(toks)[:, 0]
+#         all_logits.append(logits)
+#     all_logits = t.cat(all_logits)
+#     assert all_logits.shape == (len(data), 2)
+#     return all_logits
 
-test_set = data
-n_correct = (run_model_on_data(model, test_set).argmax(-1).bool() == test_set.isbal).sum()
-print(f"\nModel got {n_correct} out of {len(data)} training examples correct!")
+# test_set = data
+# n_correct = (run_model_on_data(model, test_set).argmax(-1).bool() == test_set.isbal).sum()
+# print(f"\nModel got {n_correct} out of {len(data)} training examples correct!")
 
 # applying integrated gradients on model
 
@@ -101,25 +102,30 @@ def predict(x):
     logits = model(x)[:, 0]
     return logits.softmax(-1)[:, 1]
 
-input = tokenizer.tokenize("()()")
+input = tokenizer.tokenize("(")
 mask = np.isin(input, [tokenizer.START_TOKEN, tokenizer.END_TOKEN])
 baseline = input * mask + tokenizer.PAD_TOKEN * (1 - mask)
 
 print(f"Input shape (tokens) {input.shape}")
 
-ig_embed = LayerIntegratedGradients(predict, model.embed)
-embed_attributions, approximation_error = ig_embed.attribute(inputs=input,
-                                                 baselines=baseline,
-                                                 return_convergence_delta=True)
+target_layers = [model.embed, model.blocks[0].attn, model.blocks[0].mlp, model.blocks[1].attn, model.blocks[1].mlp, model.blocks[2].attn, model.blocks[2].mlp]
+layer_names = ["embed", "0-attn", "0-mlp", "1-attn", "1-mlp", "2-attn", "2-mlp"]
 
-print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
-print("\nError:", approximation_error.item())
+def compute_layer_attributions(target_layer, layer_name):
+    ig_embed = LayerIntegratedGradients(predict, target_layer)
+    attributions, approximation_error = ig_embed.attribute(inputs=input,
+                                                    baselines=baseline,
+                                                    return_convergence_delta=True)
 
-attrs = embed_attributions[0].numpy()
-plt.imshow(attrs, cmap='viridis')
-plt.colorbar()
-plt.show()
+    # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
+    # print("\nError:", approximation_error.item())
 
-# Attributions for attention head
+    attrs = attributions[0].numpy() # one input token
+    ax = sns.heatmap(attrs, linewidths=0.5)
+    plt.title(layer_name)
+    plt.savefig(f"{layer_name}.pdf", format="pdf", bbox_inches="tight")
+    plt.show()
 
 
+for layer, name in zip(target_layers, layer_names):
+    compute_layer_attributions(layer, name)

@@ -1,7 +1,6 @@
 import json
-import tqdm
 import einops
-from torch import Tensor, nn
+from torch import tensor
 import torch as t
 import torch.nn.functional as F
 import numpy as np
@@ -67,28 +66,49 @@ def add_perma_hooks_to_mask_pad_tokens(model: HookedTransformer, pad_token: int)
 model.reset_hooks(including_permanent=True)
 model = add_perma_hooks_to_mask_pad_tokens(model, tokenizer.PAD_TOKEN)
 
-N_SAMPLES = 5000
-with open("brackets_data.json") as f:
-    data_tuples = json.load(f)
-    print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
-    data_tuples = data_tuples[:N_SAMPLES]
+print("Loaded model")
 
-data = BracketsDataset(data_tuples).to(device)
-data_mini = BracketsDataset(data_tuples[:100]).to(device)
+# N_SAMPLES = 5000
+# with open("brackets_data.json") as f:
+#     data_tuples = json.load(f)
+#     print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
+#     data_tuples = data_tuples[:N_SAMPLES]
 
-def run_model_on_data(
-    model: HookedTransformer, data: BracketsDataset, batch_size: int = 200
-):
-    """Return probability that each example is balanced"""
-    all_logits = []
-    for i in range(0, len(data.strs), batch_size):
-        toks = data.toks[i : i + batch_size]
-        logits = model(toks)[:, 0]
-        all_logits.append(logits)
-    all_logits = t.cat(all_logits)
-    assert all_logits.shape == (len(data), 2)
-    return all_logits
+# data = BracketsDataset(data_tuples).to(device)
+# data_mini = BracketsDataset(data_tuples[:100]).to(device)
 
-test_set = data
-n_correct = (run_model_on_data(model, test_set).argmax(-1).bool() == test_set.isbal).sum()
-print(f"\nModel got {n_correct} out of {len(data)} training examples correct!")
+# def run_model_on_data(
+#     model: HookedTransformer, data: BracketsDataset, batch_size: int = 200
+# ):
+#     """Return probability that each example is balanced"""
+#     all_logits = []
+#     for i in range(0, len(data.strs), batch_size):
+#         toks = data.toks[i : i + batch_size]
+#         logits = model(toks)[:, 0]
+#         all_logits.append(logits)
+#     all_logits = t.cat(all_logits)
+#     assert all_logits.shape == (len(data), 2)
+#     return all_logits
+
+# test_set = data
+# n_correct = (run_model_on_data(model, test_set).argmax(-1).bool() == test_set.isbal).sum()
+# print(f"\nModel got {n_correct} out of {len(data)} training examples correct!")
+
+# applying integrated gradients on model
+
+def predict(input):
+    logits = model(input)[:, 0]
+    return logits.softmax(-1)[:, 1]
+
+input = tokenizer.tokenize("()()")
+mask = np.isin(input, [tokenizer.START_TOKEN, tokenizer.END_TOKEN])
+baseline = input * mask + tokenizer.PAD_TOKEN * (1 - mask)
+
+print(input, baseline)
+ig = IntegratedGradients(model)
+attributions, approximation_error = ig.attribute(inputs=input,
+                                                 baselines=baseline,
+                                                 return_convergence_delta=True)
+
+print(attributions)
+print(approximation_error)

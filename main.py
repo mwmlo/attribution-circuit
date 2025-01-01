@@ -7,12 +7,12 @@ import numpy as np
 import matplotlib as mpl
 
 from brackets_datasets import BracketsDataset, SimpleTokenizer
+from model import compute_integrated_gradients_layer
 
 from transformer_lens import ActivationCache, HookedTransformer, HookedTransformerConfig, utils
-from captum.attr import IntegratedGradients
+from captum.attr import LayerIntegratedGradients
 
-device = t.device("mps")
-t.set_grad_enabled(False)
+device = t.device("cpu")
 
 # Balanced bracket classifier
 
@@ -96,19 +96,24 @@ print("Loaded model")
 
 # applying integrated gradients on model
 
-def predict(input):
-    logits = model(input)[:, 0]
+def predict(x):
+    logits = model(x)[:, 0]
     return logits.softmax(-1)[:, 1]
 
 input = tokenizer.tokenize("()()")
 mask = np.isin(input, [tokenizer.START_TOKEN, tokenizer.END_TOKEN])
 baseline = input * mask + tokenizer.PAD_TOKEN * (1 - mask)
 
-print(input, baseline)
-ig = IntegratedGradients(model)
+print(f"Input shape (tokens) {input.shape}")
+
+target_layer = model.embed
+# _, cache_baseline = model.run_with_cache(baseline)
+# layer_baseline = cache_baseline[model.hook_embed.name]
+
+ig = LayerIntegratedGradients(predict, target_layer)
 attributions, approximation_error = ig.attribute(inputs=input,
                                                  baselines=baseline,
                                                  return_convergence_delta=True)
 
-print(attributions)
-print(approximation_error)
+print(f"Attributions (shape {attributions.shape}): \n{attributions}")
+print("Error:", approximation_error.item())

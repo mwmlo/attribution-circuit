@@ -102,14 +102,45 @@ def predict(x):
     logits = model(x)[:, 0]
     return logits.softmax(-1)[:, 1]
 
-input = tokenizer.tokenize("(")
+input = tokenizer.tokenize("()()")
 mask = np.isin(input, [tokenizer.START_TOKEN, tokenizer.END_TOKEN])
 baseline = input * mask + tokenizer.PAD_TOKEN * (1 - mask)
 
 print(f"Input shape (tokens) {input.shape}")
 
-target_layers = [model.embed, model.blocks[0].attn, model.blocks[0].mlp, model.blocks[1].attn, model.blocks[1].mlp, model.blocks[2].attn, model.blocks[2].mlp]
-layer_names = ["embed", "0-attn", "0-mlp", "1-attn", "1-mlp", "2-attn", "2-mlp"]
+target_layers = [
+    model.embed, 
+    model.blocks[0].ln1, 
+    model.blocks[0].attn, 
+    model.blocks[0].ln2,
+    model.blocks[0].mlp, 
+    model.blocks[1].ln1, 
+    model.blocks[1].attn, 
+    model.blocks[1].ln2,
+    model.blocks[1].mlp, 
+    model.blocks[2].ln1, 
+    model.blocks[2].attn, 
+    model.blocks[2].ln2,
+    model.blocks[2].mlp, 
+    model.ln_final
+]
+layer_names = [
+    "embed",
+    "0-ln1",
+    "0-attn",
+    "0-ln2",
+    "0-mlp",
+    "1-ln1",
+    "1-attn",
+    "1-ln2",
+    "1-mlp",
+    "2-ln1",
+    "2-attn",
+    "2-ln2",
+    "2-mlp",
+    "lnfinal"
+]
+
 
 def compute_layer_attributions(target_layer, layer_name):
     ig_embed = LayerIntegratedGradients(predict, target_layer)
@@ -121,7 +152,7 @@ def compute_layer_attributions(target_layer, layer_name):
     # print("\nError:", approximation_error.item())
 
     attrs = attributions[0].numpy() # one input token
-    ax = sns.heatmap(attrs, linewidths=0.5)
+    ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
     plt.title(layer_name)
     plt.savefig(f"{layer_name}.pdf", format="pdf", bbox_inches="tight")
     plt.show()

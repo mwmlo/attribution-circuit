@@ -179,9 +179,10 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index):
     return attributions
 
 
-def display_attributions(attributions, from_layer_name, to_layer_name):
+def display_attributions(attributions, from_layer_name, to_layer_name, averaged=False):
     attrs = attributions[0].numpy() # one input token
-    attrs = np.mean(attrs, axis=1).reshape((-1, 1))
+    if averaged:
+        attrs = np.mean(attrs, axis=1).reshape((-1, 1))
     ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
     plt.title(f"{from_layer_name}->{to_layer_name}")
     plt.savefig(f"{from_layer_name}_{to_layer_name}.pdf", format="pdf", bbox_inches="tight")
@@ -198,7 +199,7 @@ def display_attributions(attributions, from_layer_name, to_layer_name):
 
 for layer, name in zip(target_layers, layer_names):
     attrs = compute_layer_to_output_attributions(layer)
-    display_attributions(attrs, name, "output(avg)")
+    display_attributions(attrs, name, "output(avg)", averaged=True)
 
 # same as   compute_layer_to_output_attributions(model.embed, "embed")
 # ==        compute_layer_to_layer_attributions(model.embed, None, "embed", "output")

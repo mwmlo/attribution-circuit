@@ -169,29 +169,36 @@ def get_pre_layers(to_layer_name):
     return pre_layers
 
 
-def compute_layer_to_layer_attributions(from_layer, to_layer_hook_name: str, from_layer_name: str, to_layer_name: str):
+def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer_name: str, to_layer_name: str):
 
     # Get target layer output
-    _, cache = model.run_with_cache(input, names_filter=to_layer_hook_name)
-    to_layer_output = cache[to_layer_hook_name]
+    # _, cache = model.run_with_cache(input, names_filter=to_layer_hook_name)
+    # to_layer_output = cache[to_layer_hook_name]
 
-    pre_layers_names = get_pre_layers(to_layer_hook_name)
-    print(pre_layers_names)
+    # pre_layers_names = get_pre_layers(to_layer_hook_name)
+    # print(pre_layers_names)
 
-    def is_post_layer(layer_name) -> bool:
-        return layer_name not in pre_layers_names
+    # def is_post_layer(layer_name) -> bool:
+    #     return layer_name not in pre_layers_names
 
-    def hook_ignore_post_layer(value, hook: HookPoint):
-        print(f"Ignore {hook.name}: overwrite {value} as {to_layer_output}")
-        return to_layer_output
+    # def hook_ignore_post_layer(value, hook: HookPoint):
+    #     print(f"Ignore {hook.name}: overwrite {value.shape} as {to_layer_output.shape}")
+    #     return to_layer_output
 
-    def run_to_layer(x):
-        logits = model.run_with_hooks(x, fwd_hooks=[(is_post_layer, hook_ignore_post_layer)])
-        return logits[:, 0].softmax(-1)[:, 1]
-
-    ig_embed = LayerIntegratedGradients(run_to_layer, from_layer)
+    # def run_to_layer(x):
+    #     logits = model.run_with_hooks(x, fwd_hooks=[(is_post_layer, hook_ignore_post_layer)])
+    #     return logits[:, 0].softmax(-1)[:, 1]
+    
+    def run_fn(x):
+        return model.forward(x, stop_at_layer=stop_layer_index)[:,0][:,1]
+    
+    # print(run_fn(input).shape)
+    # print(run_fn(input)[0,0])
+    
+    ig_embed = LayerIntegratedGradients(run_fn, from_layer)
     attributions, approximation_error = ig_embed.attribute(inputs=input,
                                                     baselines=baseline,
+                                                    # target=(0,0,1),
                                                     return_convergence_delta=True)
 
     # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
@@ -211,5 +218,6 @@ def compute_layer_to_layer_attributions(from_layer, to_layer_hook_name: str, fro
 # hook points: blocks.0.ln1.hook_normalized, blocks.0.attn.hook_result
 # pre_layers = get_pre_layers("blocks.0.ln1.hook_normalized", "blocks.0.attn.hook_result")
 
-# compute_layer_to_layer_attributions(model.blocks[0].ln1, "blocks.0.attn.hook_result", "0-ln1", "0-attn")
-compute_layer_to_layer_attributions(model.embed, "ln_final.hook_normalized", "embed", "output")
+# compute_layer_to_layer_attributions(model.blocks[0].hook_attn_in, "blocks.0.hook_attn_out", "0-ln1", "0-attn")
+# compute_layer_to_layer_attributions(model.embed, "ln_final.hook_normalized", "embed", "output")
+compute_layer_to_layer_attributions(model.embed, None, "embed", "output")

@@ -1,4 +1,5 @@
 import json
+from itertools import takewhile, dropwhile
 import einops
 from torch import tensor
 import torch as t
@@ -11,6 +12,7 @@ from brackets_datasets import BracketsDataset, SimpleTokenizer
 from model import compute_integrated_gradients_layer
 
 from transformer_lens import ActivationCache, HookedTransformer, HookedTransformerConfig, utils
+from transformer_lens.hook_points import HookPoint
 from captum.attr import LayerIntegratedGradients
 
 device = t.device("cpu")
@@ -142,7 +144,7 @@ layer_names = [
 ]
 
 
-def compute_layer_attributions(target_layer, layer_name):
+def compute_layer_to_output_attributions(target_layer, layer_name):
     ig_embed = LayerIntegratedGradients(predict, target_layer)
     attributions, approximation_error = ig_embed.attribute(inputs=input,
                                                     baselines=baseline,
@@ -154,9 +156,60 @@ def compute_layer_attributions(target_layer, layer_name):
     attrs = attributions[0].numpy() # one input token
     ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
     plt.title(layer_name)
-    plt.savefig(f"{layer_name}.pdf", format="pdf", bbox_inches="tight")
+    plt.savefig(f"{layer_name}_output.pdf", format="pdf", bbox_inches="tight")
     plt.show()
 
 
-for layer, name in zip(target_layers, layer_names):
-    compute_layer_attributions(layer, name)
+all_layers = list(model.hook_dict.keys())
+
+def get_pre_layers(to_layer_name):
+    pre_layers = list(takewhile(lambda x: x != to_layer_name, all_layers))
+    # Include to_layer in list
+    pre_layers.append(all_layers[len(pre_layers)])
+    return pre_layers
+
+
+def compute_layer_to_layer_attributions(from_layer, to_layer_hook_name: str, from_layer_name: str, to_layer_name: str):
+
+    # Get target layer output
+    _, cache = model.run_with_cache(input, names_filter=to_layer_hook_name)
+    to_layer_output = cache[to_layer_hook_name]
+
+    pre_layers_names = get_pre_layers(to_layer_hook_name)
+    print(pre_layers_names)
+
+    def is_post_layer(layer_name) -> bool:
+        return layer_name not in pre_layers_names
+
+    def hook_ignore_post_layer(value, hook: HookPoint):
+        print(f"Ignore {hook.name}: overwrite {value} as {to_layer_output}")
+        return to_layer_output
+
+    def run_to_layer(x):
+        logits = model.run_with_hooks(x, fwd_hooks=[(is_post_layer, hook_ignore_post_layer)])
+        return logits[:, 0].softmax(-1)[:, 1]
+
+    ig_embed = LayerIntegratedGradients(run_to_layer, from_layer)
+    attributions, approximation_error = ig_embed.attribute(inputs=input,
+                                                    baselines=baseline,
+                                                    return_convergence_delta=True)
+
+    # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
+    # print("\nError:", approximation_error.item())
+
+    attrs = attributions[0].numpy() # one input token
+    ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
+    plt.title(f"{from_layer_name}->{to_layer_name}")
+    plt.savefig(f"{from_layer_name}_{to_layer_name}.pdf", format="pdf", bbox_inches="tight")
+    plt.show()
+
+
+
+# for layer, name in zip(target_layers, layer_names):
+#     compute_layer_to_output_attributions(layer, name)
+    
+# hook points: blocks.0.ln1.hook_normalized, blocks.0.attn.hook_result
+# pre_layers = get_pre_layers("blocks.0.ln1.hook_normalized", "blocks.0.attn.hook_result")
+
+# compute_layer_to_layer_attributions(model.blocks[0].ln1, "blocks.0.attn.hook_result", "0-ln1", "0-attn")
+compute_layer_to_layer_attributions(model.embed, "ln_final.hook_normalized", "embed", "output")

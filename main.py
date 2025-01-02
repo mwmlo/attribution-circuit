@@ -144,7 +144,7 @@ layer_names = [
 ]
 
 
-def compute_layer_to_output_attributions(target_layer, layer_name):
+def compute_layer_to_output_attributions(target_layer):
     ig_embed = LayerIntegratedGradients(predict, target_layer)
     attributions, approximation_error = ig_embed.attribute(inputs=input,
                                                     baselines=baseline,
@@ -152,13 +152,7 @@ def compute_layer_to_output_attributions(target_layer, layer_name):
 
     # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
     # print("\nError:", approximation_error.item())
-
-    attrs = attributions[0].numpy() # one input token
-    ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
-    plt.title(layer_name)
-    plt.savefig(f"{layer_name}_output.pdf", format="pdf", bbox_inches="tight")
-    plt.show()
-
+    return attributions
 
 all_layers = list(model.hook_dict.keys())
 
@@ -169,31 +163,10 @@ def get_pre_layers(to_layer_name):
     return pre_layers
 
 
-def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer_name: str, to_layer_name: str):
-
-    # Get target layer output
-    # _, cache = model.run_with_cache(input, names_filter=to_layer_hook_name)
-    # to_layer_output = cache[to_layer_hook_name]
-
-    # pre_layers_names = get_pre_layers(to_layer_hook_name)
-    # print(pre_layers_names)
-
-    # def is_post_layer(layer_name) -> bool:
-    #     return layer_name not in pre_layers_names
-
-    # def hook_ignore_post_layer(value, hook: HookPoint):
-    #     print(f"Ignore {hook.name}: overwrite {value.shape} as {to_layer_output.shape}")
-    #     return to_layer_output
-
-    # def run_to_layer(x):
-    #     logits = model.run_with_hooks(x, fwd_hooks=[(is_post_layer, hook_ignore_post_layer)])
-    #     return logits[:, 0].softmax(-1)[:, 1]
+def compute_layer_to_layer_attributions(from_layer, stop_layer_index):
     
     def run_fn(x):
         return model.forward(x, stop_at_layer=stop_layer_index)
-    
-    # print(run_fn(input).shape)
-    # print(run_fn(input)[0,0])
     
     ig_embed = LayerIntegratedGradients(run_fn, from_layer)
     attributions, approximation_error = ig_embed.attribute(inputs=input,
@@ -203,7 +176,10 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer
 
     # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
     # print("\nError:", approximation_error.item())
+    return attributions
 
+
+def display_attributions(attributions, from_layer_name, to_layer_name):
     attrs = attributions[0].numpy() # one input token
     ax = sns.heatmap(attrs, cmap="coolwarm", linewidths=0.5, center=0)
     plt.title(f"{from_layer_name}->{to_layer_name}")
@@ -211,11 +187,23 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer
     plt.show()
 
 
+# attrs_0_attn_in = compute_layer_to_layer_attributions(model.blocks[0].ln1, 1)
+# attrs_0_mlp_in = compute_layer_to_layer_attributions(model.blocks[0].ln2, 1)
+# display_attributions(attrs_0_attn_in, "0-attn-in", "0-output")
+# display_attributions(attrs_0_mlp_in, "0-mlp-in", "0-output")
 
-# for layer, name in zip(target_layers, layer_names):
-#     compute_layer_to_output_attributions(layer, name)
+# display_attributions(attrs_0_attn_in - attrs_0_mlp_in, "0-attn-in ISOLATED", "0-output")
+
+
+for layer, name in zip(target_layers, layer_names):
+    attrs = compute_layer_to_output_attributions(layer)
+    display_attributions(attrs, name, "output")
 
 # same as   compute_layer_to_output_attributions(model.embed, "embed")
 # ==        compute_layer_to_layer_attributions(model.embed, None, "embed", "output")
 
-compute_layer_to_layer_attributions(model.blocks[0].ln1, 1, "0-attn-in", "0-output")
+# compute_layer_to_layer_attributions(model.blocks[0].ln1, 1, "0-attn-in", "0-output")
+# compute_layer_to_layer_attributions(model.blocks[0].ln2, 1, "0-mlp-in", "0-output")
+# compute_layer_to_layer_attributions(model.blocks[0].ln1, 3, "0-attn-in", "output")
+# compute_layer_to_layer_attributions(model.blocks[2].ln1, 3, "2-attn-in", "2-output")
+# compute_layer_to_layer_attributions(model.blocks[2].attn, 3, "2-attn-out", "2-output")

@@ -102,7 +102,7 @@ print("Loaded model")
 
 def predict(x):
     logits = model(x)[:, 0]
-    return logits.softmax(-1)[:, 1]
+    return logits.softmax(-1)[:, 0]
 
 input = tokenizer.tokenize("()()")
 mask = np.isin(input, [tokenizer.START_TOKEN, tokenizer.END_TOKEN])
@@ -190,7 +190,7 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer
     #     return logits[:, 0].softmax(-1)[:, 1]
     
     def run_fn(x):
-        return model.forward(x, stop_at_layer=stop_layer_index)[:,0][:,1]
+        return model.forward(x, stop_at_layer=stop_layer_index)
     
     # print(run_fn(input).shape)
     # print(run_fn(input)[0,0])
@@ -198,7 +198,7 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer
     ig_embed = LayerIntegratedGradients(run_fn, from_layer)
     attributions, approximation_error = ig_embed.attribute(inputs=input,
                                                     baselines=baseline,
-                                                    # target=(0,0,1),
+                                                    target=(0,0),
                                                     return_convergence_delta=True)
 
     # print(f"Attributions (shape {embed_attributions.shape}): \n{embed_attributions}")
@@ -214,10 +214,8 @@ def compute_layer_to_layer_attributions(from_layer, stop_layer_index, from_layer
 
 # for layer, name in zip(target_layers, layer_names):
 #     compute_layer_to_output_attributions(layer, name)
-    
-# hook points: blocks.0.ln1.hook_normalized, blocks.0.attn.hook_result
-# pre_layers = get_pre_layers("blocks.0.ln1.hook_normalized", "blocks.0.attn.hook_result")
 
-# compute_layer_to_layer_attributions(model.blocks[0].hook_attn_in, "blocks.0.hook_attn_out", "0-ln1", "0-attn")
-# compute_layer_to_layer_attributions(model.embed, "ln_final.hook_normalized", "embed", "output")
-compute_layer_to_layer_attributions(model.embed, None, "embed", "output")
+# same as   compute_layer_to_output_attributions(model.embed, "embed")
+# ==        compute_layer_to_layer_attributions(model.embed, None, "embed", "output")
+
+compute_layer_to_layer_attributions(model.blocks[0].ln1, 1, "0-attn-in", "0-output")

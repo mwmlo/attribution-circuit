@@ -15,7 +15,10 @@ from transformer_lens import ActivationCache, HookedTransformer, HookedTransform
 from transformer_lens.hook_points import HookPoint
 from captum.attr import LayerIntegratedGradients
 
-device = t.device("cpu")
+import plotly_utils
+from plotly_utils import bar, hist
+
+device = t.device("mps")
 
 # Balanced bracket classifier
 
@@ -72,14 +75,14 @@ model = add_perma_hooks_to_mask_pad_tokens(model, tokenizer.PAD_TOKEN)
 
 print("Loaded model")
 
-# N_SAMPLES = 5000
-# with open("brackets_data.json") as f:
-#     data_tuples = json.load(f)
-#     print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
-#     data_tuples = data_tuples[:N_SAMPLES]
+N_SAMPLES = 5000
+with open("brackets_data.json") as f:
+    data_tuples = json.load(f)
+    print(f"loaded {len(data_tuples)} examples, using {N_SAMPLES}")
+    data_tuples = data_tuples[:N_SAMPLES]
 
-# data = BracketsDataset(data_tuples).to(device)
-# data_mini = BracketsDataset(data_tuples[:100]).to(device)
+data = BracketsDataset(data_tuples).to(device)
+data_mini = BracketsDataset(data_tuples[:100]).to(device)
 
 # def run_model_on_data(
 #     model: HookedTransformer, data: BracketsDataset, batch_size: int = 200
@@ -197,9 +200,9 @@ def display_attributions(attributions, from_layer_name, to_layer_name, averaged=
 # display_attributions(attrs_0_attn_in - attrs_0_mlp_in, "0-attn-in ISOLATED", "0-output")
 
 
-for layer, name in zip(target_layers, layer_names):
-    attrs = compute_layer_to_output_attributions(layer)
-    display_attributions(attrs, name, "output(avg)", averaged=True)
+# for layer, name in zip(target_layers, layer_names):
+#     attrs = compute_layer_to_output_attributions(layer)
+#     display_attributions(attrs, name, "output(avg)", averaged=True)
 
 # same as   compute_layer_to_output_attributions(model.embed, "embed")
 # ==        compute_layer_to_layer_attributions(model.embed, None, "embed", "output")
@@ -209,3 +212,20 @@ for layer, name in zip(target_layers, layer_names):
 # compute_layer_to_layer_attributions(model.blocks[0].ln1, 3, "0-attn-in", "output")
 # compute_layer_to_layer_attributions(model.blocks[2].ln1, 3, "2-attn-in", "2-output")
 # compute_layer_to_layer_attributions(model.blocks[2].attn, 3, "2-attn-out", "2-output")
+
+from arena_solutions import get_out_by_neuron_in_20_dir_less_memory, is_balanced_vectorized_return_both
+
+total_elevation_failure, negative_failure = is_balanced_vectorized_return_both(data.toks)
+
+failure_types_dict = {
+    "both failures": negative_failure & total_elevation_failure,
+    "just neg failure": negative_failure & ~total_elevation_failure,
+    "just total elevation failure": ~negative_failure & total_elevation_failure,
+    "balanced": ~negative_failure & ~total_elevation_failure,
+}
+
+for layer in range(2):
+    # Get neuron significances for head 2.0, sequence position #1 output
+    neurons_in_unbalanced_dir = get_out_by_neuron_in_20_dir_less_memory(model, data, layer)[utils.to_numpy(data.starts_open), :]
+    # Plot neurons' activations
+    plotly_utils.plot_neurons(neurons_in_unbalanced_dir, model, data, failure_types_dict, layer, renderer="browser")
